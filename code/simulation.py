@@ -65,4 +65,4 @@ if __name__ == "__main__":
 
     plot_data = simulate_dataset(1_000_000, NUM_STRATA, seed=SEED)
     plot_simulation(plot_data).show()
-    plt.savefig("../figures/figure-1.png", dpi=300)
+    plt.savefig("figures/figure-1.png", dpi=300)
