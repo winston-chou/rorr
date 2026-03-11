@@ -1,0 +1,24 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\begin{document}
+\begin{table}[ht]
+\centering
+\caption{Simulation Results for RORR and ACD}
+\begin{tabular}{lccc}
+\toprule
+Sample Size & Empirical RORR & RORR 95\% CI & RORR Plim \\
+\midrule
+10,000 & 0.250 & (0.237, 0.262) & 0.247 \\
+100,000 & 0.248 & (0.244, 0.252) & 0.247 \\
+1,000,000 & 0.248 & (0.247, 0.249) & 0.247 \\
+\midrule
+Sample Size & Empirical ACD & ACD 95\% CI & True ACD \\
+\midrule
+10,000 & 0.362 & (0.357, 0.367) & 0.365 \\
+100,000 & 0.364 & (0.362, 0.366) & 0.365 \\
+1,000,000 & 0.365 & (0.364, 0.365) & 0.365 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{document}

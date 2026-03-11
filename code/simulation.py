@@ -4,7 +4,7 @@ import pandas as pd
 
 from data import simulate_dataset, f_t, g_x, h_x
 from estimators import compute_acd, estimate_weighted_increments, get_rorr_estimates
-from plot import plot_simulation
+from plot import plot_simulation, plot_f, plot_dist, plot_deriv, plot_tstar_dist
 
 
 NUM_STRATA = 5
@@ -46,6 +46,70 @@ def to_latex(df, estimator_name):
     print(f"\nLaTeX Table for {estimator_name}:\n")
     print(latex)
 
+def write_section3_table1_tex(df_rorr, df_acd, output_path="figures/table-1-section3.tex"):
+    def format_sample_size(n):
+        return f"{int(n):,}"
+
+    rorr_plim = (
+        df_rorr.loc[df_rorr["Sample Size"].idxmax(), "RORR Target"]
+        if len(df_rorr) > 0
+        else np.nan
+    )
+
+    rorr_rows = [
+        (
+            format_sample_size(row["Sample Size"]),
+            f'{row["Empirical RORR"]:.3f}',
+            row["RORR CI"],
+            f"{rorr_plim:.3f}",
+        )
+        for _, row in df_rorr.iterrows()
+    ]
+    acd_rows = [
+        (
+            format_sample_size(row["Sample Size"]),
+            f'{row["Empirical ACD"]:.3f}',
+            row["ACD CI"],
+            f'{row["ACD Target"]:.3f}',
+        )
+        for _, row in df_acd.iterrows()
+    ]
+
+    lines = [
+        r"\documentclass{article}",
+        r"\usepackage{booktabs}",
+        r"\usepackage[margin=1in]{geometry}",
+        r"\begin{document}",
+        r"\begin{table}[ht]",
+        r"\centering",
+        r"\caption{Simulation Results for RORR and ACD}",
+        r"\begin{tabular}{lccc}",
+        r"\toprule",
+        r"Sample Size & Empirical RORR & RORR 95\% CI & RORR Plim \\",
+        r"\midrule",
+    ]
+
+    lines.extend([f"{n} & {est} & {ci} & {target} \\\\" for n, est, ci, target in rorr_rows])
+    lines.extend(
+        [
+            r"\midrule",
+            r"Sample Size & Empirical ACD & ACD 95\% CI & True ACD \\",
+            r"\midrule",
+        ]
+    )
+    lines.extend([f"{n} & {est} & {ci} & {target} \\\\" for n, est, ci, target in acd_rows])
+    lines.extend(
+        [
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+            r"\end{document}",
+        ]
+    )
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
 
 if __name__ == "__main__":
     results_acd, results_rorr, results_aie = run_simulation(SAMPLE_SIZES)
@@ -62,7 +126,20 @@ if __name__ == "__main__":
     to_latex(df_acd, "ACD Estimator")
     to_latex(df_rorr, "RORR Estimator")
     to_latex(df_aie, "AIE Estimator")
+    write_section3_table1_tex(df_rorr, df_acd)
 
     plot_data = simulate_dataset(1_000_000, NUM_STRATA, seed=SEED)
     plot_simulation(plot_data).show()
     plt.savefig("figures/figure-1.png", dpi=300)
+
+    plot_f().show()
+    plt.savefig("figures/talk-fig-dose-response.png", dpi=300)
+
+    plot_dist(plot_data).show()
+    plt.savefig("figures/talk-fig-T-distribution.png", dpi=300)
+
+    plot_deriv(plot_data).show()
+    plt.savefig("figures/talk-fig-derivative.png", dpi=300)
+
+    plot_tstar_dist(plot_data).show()
+    plt.savefig("figures/talk-fig-Ts-distribution.png", dpi=300)
