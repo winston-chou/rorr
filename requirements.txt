@@ -1,6 +1,8 @@
 Jinja2==3.1.6
+lightgbm==4.6.0
 matplotlib==3.10.1
 numpy==2.2.4
 pandas==2.2.3
+scikit-learn==1.8.0
 scipy==1.15.2
 statsmodels==0.14.4

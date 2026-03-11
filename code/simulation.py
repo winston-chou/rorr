@@ -110,6 +110,47 @@ def write_section3_table1_tex(df_rorr, df_acd, output_path="figures/table-1-sect
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
+def write_section3_table2_tex(df_aie, output_path="figures/table-2-section3.tex"):
+    def format_sample_size(n):
+        return f"{int(n):,}"
+
+    aie_rows = [
+        (
+            format_sample_size(row["Sample Size"]),
+            f'{row["Empirical AIE"]:.3f}',
+            row["AIE CI"],
+            f'{row["AIE Target"]:.3f}',
+        )
+        for _, row in df_aie.iterrows()
+    ]
+
+    lines = [
+        r"\documentclass{article}",
+        r"\usepackage{booktabs}",
+        r"\usepackage[margin=1in]{geometry}",
+        r"\begin{document}",
+        r"\begin{table}[ht]",
+        r"\centering",
+        r"\caption{Simulation Results for Coarsened AIPW and AIE}",
+        r"\begin{tabular}{lccc}",
+        r"\toprule",
+        r"Sample Size & Empirical AIE & AIE 95\% CI & True AIE \\",
+        r"\midrule",
+    ]
+
+    lines.extend([f"{n} & {est} & {ci} & {target} \\\\" for n, est, ci, target in aie_rows])
+    lines.extend(
+        [
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+            r"\end{document}",
+        ]
+    )
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
 
 if __name__ == "__main__":
     results_acd, results_rorr, results_aie = run_simulation(SAMPLE_SIZES)
@@ -127,6 +168,7 @@ if __name__ == "__main__":
     to_latex(df_rorr, "RORR Estimator")
     to_latex(df_aie, "AIE Estimator")
     write_section3_table1_tex(df_rorr, df_acd)
+    write_section3_table2_tex(df_aie)
 
     plot_data = simulate_dataset(1_000_000, NUM_STRATA, seed=SEED)
     plot_simulation(plot_data).show()
