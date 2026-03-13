@@ -56,6 +56,11 @@ def require_nonzero_std(value, name):
         )
 
 
+def validate_num_bins(num_bins):
+    if not isinstance(num_bins, int) or num_bins < 2:
+        raise ValueError("`num_bins` must be an integer >= 2.")
+
+
 def add_intercept(x):
     x = np.asarray(x, dtype=float)
     return np.c_[np.ones(x.shape[0]), x]
@@ -119,8 +124,13 @@ def train_lgbm_regressor(train_df, validate_df, label_col, min_data_in_leaf):
         params={
             "objective": "regression",
             "metric": "l2",
-            "num_leaves": 1000,
+            "learning_rate": 0.05,
+            "num_leaves": 63,
             "min_data_in_leaf": min_data_in_leaf,
+            "feature_fraction": 0.9,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "lambda_l2": 1.0,
             "seed": SEED,
         },
         train_set=train_data,
@@ -131,22 +141,22 @@ def train_lgbm_regressor(train_df, validate_df, label_col, min_data_in_leaf):
     return model
 
 
-def train_propensity_model(train_df, validate_df, coarse_col):
+def train_propensity_model(train_df, validate_df, coarse_col, num_bins):
     clf = lgb.LGBMClassifier(
         objective="multiclass",
-        num_classes=BUCKETS,
+        num_classes=num_bins,
         metric="multi_logloss",
-        learning_rate=0.01,
+        learning_rate=0.05,
         max_depth=-1,
-        n_estimators=5000,
-        min_data_in_leaf=5,
-        max_bin=1024,
-        num_leaves=1023,
-        feature_fraction=1.0,
-        bagging_fraction=1.0,
-        bagging_freq=0,
+        n_estimators=1500,
+        min_data_in_leaf=30,
+        max_bin=255,
+        num_leaves=127,
+        feature_fraction=0.9,
+        bagging_fraction=0.8,
+        bagging_freq=1,
         lambda_l1=0.0,
-        lambda_l2=0.0,
+        lambda_l2=1.0,
         min_gain_to_split=0.0,
         seed=SEED,
         verbosity=-1,
@@ -182,8 +192,13 @@ def train_aipw_outcome_model(train_df, validate_df, coarse_col):
         params={
             "objective": "regression",
             "metric": "l2",
-            "num_leaves": 255,
-            "min_data_in_leaf": 50,
+            "learning_rate": 0.05,
+            "num_leaves": 63,
+            "min_data_in_leaf": 30,
+            "feature_fraction": 0.9,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "lambda_l2": 1.0,
             "seed": SEED,
         },
         train_set=train_data,
@@ -193,28 +208,25 @@ def train_aipw_outcome_model(train_df, validate_df, coarse_col):
     )
 
 
-def compute_quartiles(series):
+def compute_nonzero_cutpoints(series, num_bins):
+    validate_num_bins(num_bins)
     non_zero_series = series[series > EPS]
-    if len(non_zero_series) == 0:
-        return np.array([EPS, EPS, EPS], dtype=float)
-    return np.percentile(non_zero_series, [25, 50, 75])
+    positive_bins = num_bins - 1
+    if positive_bins <= 1 or len(non_zero_series) == 0:
+        return np.array([], dtype=float)
+    quantiles = np.linspace(0, 100, positive_bins + 1)[1:-1]
+    return np.percentile(non_zero_series, quantiles)
 
 
-def coarsener(x, quartiles):
+def coarsener(x, cutpoints):
     if x <= EPS:
         return 0
-    if x <= quartiles[0]:
-        return 1
-    if x <= quartiles[1]:
-        return 2
-    if x <= quartiles[2]:
-        return 3
-    return 4
+    return int(np.searchsorted(cutpoints, x, side="right") + 1)
 
 
-def coarsen_treatment(df, quartiles):
+def coarsen_treatment(df, cutpoints):
     out = df.copy()
-    out[f"{TREATMENT}_coarse"] = out[TREATMENT].map(lambda x: coarsener(x, quartiles)).astype(int)
+    out[f"{TREATMENT}_coarse"] = out[TREATMENT].map(lambda x: coarsener(x, cutpoints)).astype(int)
     return out
 
 
@@ -293,7 +305,8 @@ def run_rorr(
     }
 
 
-def run_coarsened_aipw(state):
+def run_coarsened_aipw(state, num_bins=BUCKETS):
+    validate_num_bins(num_bins)
     train = state["train"]
     validate = state["validate"]
     test = state["test"]
@@ -302,19 +315,19 @@ def run_coarsened_aipw(state):
     outcome_std = state["outcome_std"]
     treatment_std = state["treatment_std"]
 
-    quartiles = compute_quartiles(train[TREATMENT])
-    data = coarsen_treatment(data, quartiles)
-    train = coarsen_treatment(train, quartiles)
-    validate = coarsen_treatment(validate, quartiles)
-    test = coarsen_treatment(test, quartiles)
+    cutpoints = compute_nonzero_cutpoints(train[TREATMENT], num_bins=num_bins)
+    data = coarsen_treatment(data, cutpoints)
+    train = coarsen_treatment(train, cutpoints)
+    validate = coarsen_treatment(validate, cutpoints)
+    test = coarsen_treatment(test, cutpoints)
     coarse_col = f"{TREATMENT}_coarse"
 
-    propensity_model = train_propensity_model(train, validate, coarse_col)
+    propensity_model = train_propensity_model(train, validate, coarse_col, num_bins=num_bins)
     aipw_outcome_model = train_aipw_outcome_model(train, validate, coarse_col)
     ps = propensity_model.predict_proba(test[COVARIATES])
 
     y_hat_by_level = []
-    for level in range(BUCKETS):
+    for level in range(num_bins):
         test_level = test[[*COVARIATES]].copy()
         test_level[coarse_col] = level
         y_hat_level = predict_with_model(aipw_outcome_model, test_level[[*COVARIATES, coarse_col]])
@@ -328,16 +341,16 @@ def run_coarsened_aipw(state):
             pred_outcome_level=y_hat_by_level[level],
             pscores=ps,
         )
-        for level in range(BUCKETS)
+        for level in range(num_bins)
     ]
 
     ## Check balance on pre-treatment covariate.
     pre_weighting = (
-        test.groupby(coarse_col)[CHECK_COVARIATE].mean().reindex(np.arange(BUCKETS), fill_value=np.nan).to_numpy()
+        test.groupby(coarse_col)[CHECK_COVARIATE].mean().reindex(np.arange(num_bins), fill_value=np.nan).to_numpy()
     )
     post_weighting = np.array([
         compute_ipw_weighted_mean(level, test[CHECK_COVARIATE], test[coarse_col], ps)
-        for level in range(BUCKETS)
+        for level in range(num_bins)
     ])
     pre_weighting_std = test[CHECK_COVARIATE].std()
     require_nonzero_std(pre_weighting_std, f"{CHECK_COVARIATE}_std")
@@ -345,7 +358,7 @@ def run_coarsened_aipw(state):
     pre_weighting_diff = (pre_weighting - pre_weighting[0]) / pre_weighting_std
     post_weighting_diff = (post_weighting - post_weighting[0]) / pre_weighting_std
 
-    bins = np.arange(BUCKETS)
+    bins = np.arange(num_bins)
     plt.figure(figsize=(6, 4))
     plt.axvline(x=0, color="pink", linewidth=1.5, zorder=0)
     plt.axvline(x=0.2, color="grey", linestyle="--", linewidth=1)
@@ -370,7 +383,7 @@ def run_coarsened_aipw(state):
 
     plt.figure(figsize=(6, 4))
     plt.bar(
-        x=np.arange(1, BUCKETS + 1),
+        x=np.arange(1, num_bins + 1),
         height=means,
         yerr=conf_intervals,
         capsize=5,
@@ -385,18 +398,18 @@ def run_coarsened_aipw(state):
     plt.savefig("figures/emp-dose-response.png", dpi=300)
     plt.close()
 
-    incremental_means = np.array([means[i + 1] - means[i] for i in range(BUCKETS - 1)])
+    incremental_means = np.array([means[i + 1] - means[i] for i in range(num_bins - 1)])
     incremental_stderrs = np.array(
         [
             np.sqrt(aipw_by_level[i + 1].var(ddof=1) / len(aipw_by_level[i + 1]) + aipw_by_level[i].var(ddof=1) / len(aipw_by_level[i]))
-            for i in range(BUCKETS - 1)
+            for i in range(num_bins - 1)
         ]
     )
     incremental_cis = 1.96 * incremental_stderrs
 
     plt.figure(figsize=(6, 4))
     plt.bar(
-        x=np.arange(1, BUCKETS),
+        x=np.arange(1, num_bins),
         height=incremental_means,
         yerr=incremental_cis,
         capsize=5,
@@ -406,7 +419,11 @@ def run_coarsened_aipw(state):
     plt.yticks([])
     plt.ylabel("Effect on Outcome", fontsize=14)
     plt.xlabel("Treatment Bin Increment", fontsize=14)
-    plt.xticks(ticks=np.arange(1, BUCKETS), labels=[f"{i} to {i+1}" for i in range(1, BUCKETS)], fontsize=12)
+    plt.xticks(
+        ticks=np.arange(1, num_bins),
+        labels=[f"{i} to {i+1}" for i in range(1, num_bins)],
+        fontsize=12,
+    )
     plt.axhline(y=0, color="pink", linewidth=1.5, zorder=0)
     plt.title("Estimated Effect of Treatment on Outcome (AIPW)", fontsize=16)
     plt.tight_layout()
@@ -414,10 +431,10 @@ def run_coarsened_aipw(state):
     plt.close()
 
     distribution = (
-        data[coarse_col].value_counts(normalize=True).reindex(np.arange(BUCKETS), fill_value=0.0).to_numpy()
+        data[coarse_col].value_counts(normalize=True).reindex(np.arange(num_bins), fill_value=0.0).to_numpy()
     )
     plt.figure(figsize=(6, 4))
-    plt.bar(x=np.arange(1, BUCKETS + 1), height=distribution, alpha=0.5)
+    plt.bar(x=np.arange(1, num_bins + 1), height=distribution, alpha=0.5)
     plt.yticks([])
     plt.ylabel("Sample Proportion", fontsize=14)
     plt.xlabel("Treatment Bin", fontsize=14)
@@ -427,7 +444,7 @@ def run_coarsened_aipw(state):
     plt.close()
 
     bin_medians = (
-        test.groupby(coarse_col)[TREATMENT].median().reindex(np.arange(BUCKETS), fill_value=np.nan)
+        test.groupby(coarse_col)[TREATMENT].median().reindex(np.arange(num_bins), fill_value=np.nan)
     )
     bin_deltas = (bin_medians.iloc[1:].to_numpy() - bin_medians.iloc[:-1].to_numpy()) / treatment_std
     safe_deltas = np.where(np.abs(bin_deltas) < EPS, np.nan, bin_deltas)
@@ -439,17 +456,17 @@ def run_coarsened_aipw(state):
 
     aipw_incremental_arrays = [
         (aipw_by_level[i + 1] - aipw_by_level[i]) / outcome_std / safe_deltas[i]
-        for i in range(BUCKETS - 1)
+        for i in range(num_bins - 1)
     ]
     aipw_treatment_effects = np.array([arr.mean() for arr in aipw_incremental_arrays])
     aipw_treatment_effects_var = np.array([arr.var(ddof=1) / len(arr) for arr in aipw_incremental_arrays])
 
     weights = (
         test[coarse_col].value_counts(normalize=True)
-        .reindex(np.arange(BUCKETS - 1), fill_value=0.0)
+        .reindex(np.arange(num_bins - 1), fill_value=0.0)
         .to_numpy()
     )
-    aggregate_if = np.sum([weights[i] * aipw_incremental_arrays[i] for i in range(BUCKETS - 1)], axis=0)
+    aggregate_if = np.sum([weights[i] * aipw_incremental_arrays[i] for i in range(num_bins - 1)], axis=0)
     aipw_mean_all = float(np.mean(aggregate_if))
     aipw_std_all = float(np.sqrt(np.var(aggregate_if, ddof=1) / len(aggregate_if)))
     aipw_ci = (aipw_mean_all - 1.96 * aipw_std_all, aipw_mean_all + 1.96 * aipw_std_all)
@@ -470,7 +487,8 @@ def run_coarsened_aipw(state):
         "aipw_weighted_effect": aipw_mean_all,
         "aipw_weighted_std": aipw_std_all,
         "aipw_weighted_ci": aipw_ci,
-        "quartiles": quartiles,
+        "cutpoints": cutpoints,
+        "num_bins": num_bins,
     }
 
 
