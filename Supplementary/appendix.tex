@@ -1,0 +1,239 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath, amssymb}
+\usepackage{amsthm}
+
+\newtheorem{lemma}{Lemma}
+
+\title{Appendix for ``Estimating Representative Causal Effects with Double Machine Learning''}
+\author{Apoorva Lal \and Winston Chou}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\appendix
+
+\section{Detailed Derivations}
+
+\subsection{Derivation of the Conditional Causal Derivative}
+\label{sec:poisson-derivation}
+Note that, in our stylized example, $T_i$ is $\text{Poisson}(\lambda_j)$ conditional on $X_i = j$.  Therefore, its probability mass function is given by:
+\begin{equation}
+    P(T_i = t | X_i = j) = e^{-\lambda_j} \frac{\lambda_j^t}{t!}, t = 0, 1, 2, \ldots,
+\end{equation}
+and the conditional expectation of the causal derivative $\frac{1}{T_i + 1}$ given $X_i = j$ is:
+\begin{equation}
+    \sum_{t = 0}^\infty \frac{1}{t + 1} e^{-\lambda_j} \frac{\lambda_j^t}{t!} = \sum_{t = 0}^\infty e^{-\lambda_j} \frac{\lambda_j^t}{(t + 1)!}.
+\end{equation}
+
+Define $s := t + 1$.  Then we can rewrite the above as:
+\begin{eqnarray}
+\sum_{s = 1}^\infty e^{-\lambda_j} \frac{\lambda_j^{s - 1}}{s!} &=& \frac{e^{-\lambda_j}}{\lambda_j} \sum_{s = 1}^\infty \frac{\lambda_j^s}{s!} \\
+&=& \frac{(e^{\lambda_j} - 1)}{\lambda_j e^{\lambda_j}} \\
+&=& \frac{1 - e^{-\lambda_j}}{\lambda_j}.
+\end{eqnarray}
+where the second-to-last equality uses the identity $\sum_{s = 0}^\infty \frac{x^s}{s!} = e^x$.
+
+
+\subsection{Derivation of $T_i^*$}
+
+\label{sec:poisson-tstar-derivation}
+
+Within a given stratum $X_i = j$, $h(X_i) = E[T_i | X_i] = \lambda_j$ by assumption.  We want to derive the point $T_i^*$ between $T_i$ and $\lambda_j$ at which we are evaluating the derivative $f'(t) = 1 / (t + 1)$.  We will condition on $X_i$ throughout.
+
+By the mean value theorem, there is some $T_i^*$ between $T_i$ and $\lambda_j$ for which:
+\begin{equation}
+    f(T_i) - f(\lambda_j) = f'(T_i^*) (T_i - \lambda_j).
+\end{equation}
+
+Plugging in the definition of $f$ and its derivative, we write this as:
+\begin{equation}
+    \log(T_i + 1) - \log(\lambda_j + 1) = \frac{1}{T_i^* + 1} (T_i - \lambda_j).
+\end{equation}
+Solving for $T_i^*$ yields:
+\begin{equation}
+    T_i^* = \frac{T_i - \lambda_j}{\log \frac{T_i + 1}{\lambda_j + 1}} - 1.
+\end{equation}
+Note that, when $T_i = \lambda_j$, this quantity is undefined (in which case we just set $T_i^* = T_i$).
+
+In our simulations, we estimate the theoretical plim of RORR by taking many draws of $T_i$, plugging them into this formula, and using the resulting stratum means to estimate the RORR plim.
+
+\section{Choosing the Number of Segments}
+
+\label{app:guidance}
+
+Choosing the number of segments $K$ into which to coarsen the treatment involves
+the usual considerations of bias and variance. Larger values of $K$ reduce bias, but they also reduce the sample size in each segment, increasing variance.  Increasing $K$ can also make results less interpretable.  In our day-to-day work, we find that a relatively small number of bins---for example, dividing users into low, medium, and high usage segments---is sufficient to uncover meaningful heterogeneity in the dose-response function. 
+
+Here, we give a highly informal justification for choosing a relatively small number of bins, on the order of $N^{1/5}$.  In practice, researchers should assess the sensitivity of their results to different choices of $K$.
+
+We assume the usual conditions for the coarsened AIPW estimator, i.e., that the treatment is conditionally unconfounded and is continuously distributed on a compact interval.  As in the main text, we decompose the error of the coarsened AIPW estimator as
+\begin{align}
+\nonumber 
+& \widehat{\psi} - E[f'(T_i)] \\
+& \quad =
+\underbrace{\left\{
+\sum_{k=1}^{K-1}
+w_k
+\left(
+\frac{\psi_{k+1}-\psi_k}{\ell}
+\right)
+-E[f'(T_i)]
+\right\}}_{\text{coarsening bias}} \nonumber
+\\
+& \qquad +
+\underbrace{
+\sum_{k=1}^{K-1}
+w_k
+\left(
+\frac{
+(\hat\psi_{k+1}-\psi_{k+1})
+-
+(\hat\psi_k-\psi_k)
+}{\ell}
+\right)
+}_{\text{estimation error}}.
+\end{align}
+
+Theorem 1 showed that the coarsening bias is
+\begin{equation}
+\sum_{k=1}^{K-1}
+w_k
+\left(
+\frac{\psi_{k+1}-\psi_k}{\ell}
+\right)
+-
+E[f'(T_i)]
+=
+O(\ell)
+=
+O(K^{-1}),
+\end{equation}
+and therefore the squared coarsening bias is $O(K^{-2})$.
+
+Next, we consider sampling variation. With cross-fitting and the usual AIPW
+regularity conditions, we have that
+\begin{equation}
+\hat\psi_k-\psi_k
+=
+\frac{1}{N}\sum_{i=1}^N \phi_k(O_i)
++
+R_{k,N},
+\end{equation}
+where $\phi_k$ is the AIPW influence function and $R_{k,N}$ is
+a higher-order remainder due to nuisance estimation.  Under smoothness of $p(t\mid x)$, $\pi_k = O(\ell)$.  Therefore, the variance of the bin-level AIPW-estimated mean is
+\begin{equation}
+\operatorname{Var}(\hat\psi_k)=O\left(\frac{1}{N\ell}\right)
+=
+O\left(\frac{K}{N}\right).
+\end{equation}
+
+It remains to account for the remainder due to nuisance estimation. Let
+\begin{equation}
+r_{N,K}=\max_{1\le k\le K}|R_{k,N}|.
+\end{equation}
+Plugging this into the estimation error expression (and ignoring telescoping for a conservative bound) yields
+\begin{equation}
+\left|
+\sum_{k=1}^{K-1}
+w_k
+\left(
+\frac{R_{k+1,N}-R_{k,N}}{\ell}
+\right)
+\right|
+=
+O_p(Kr_{N,K}),
+\end{equation}
+so its squared contribution is $O_p(K^2r_{N,K}^2)$.
+
+Combining these pieces, the coarsened AIPW estimator has MSE
+\begin{equation}
+\operatorname{MSE}(\widehat\psi)
+=
+O(K^{-2})
++
+O\left(\frac{K}{N}\right)
++
+O_p(K^2r_{N,K}^2).
+\end{equation}
+A typical assumption for the nuisance remainder is that it is $o_p((N\ell)^{-1/2})$, so a conservative bound sets
+\begin{equation}
+r_{N,K}
+=
+O_p\left(\left(\frac{N}{K}\right)^{-1/2}\right)
+=
+O_p\left(\sqrt{\frac{K}{N}}\right).
+\end{equation}
+Under this assumption, the nuisance-remainder contribution is
+\begin{equation}
+O_p(K^2r_{N,K}^2)
+=
+O_p\left(\frac{K^3}{N}\right),
+\end{equation}
+and so
+\begin{equation}
+\operatorname{MSE}(\hat\Psi_K)
+=
+O(K^{-2})
++
+O\left(\frac{K^3}{N}\right),
+\end{equation}
+up to lower-order terms.  The $K$ that minimizes this is $K^*=O(N^{1/5})$
+
+Again, this derivation is heuristic and should be treated as a starting point. Researchers should assess the sensitivity of their results to several values of $K$ while also scrutinizing the underlying assumptions of continuity and positivity of the treatment.
+
+\section{Lemma~\ref{lemma:midpoint}}
+
+\label{app:midpoint}
+
+\begin{lemma}
+    \label{lemma:midpoint}
+    Assume $f$ is twice continuously differentiable with $|f''(t)|\le M$ and that $p(t\mid x)$ is twice continuously differentiable with uniformly bounded derivatives. Also assume positivity:
+    \[
+    \int_{S_k}p(t\mid x)dt \ge \epsilon \ell
+    \]
+    uniformly in $k$ and $x$.
+
+    Then for every $x$ and uniformly in $k$,
+    \begin{equation}
+        \int f(t) r_k (t|x) dt = f(\overline{t}_k) + O(\ell^2),
+    \end{equation}
+    where, as in the main text, $\overline{t}_k = \frac{t_{k+1} + t_k}{2}$, $\ell = t_{k + 1} - t_k$, and $r_k(t|x) = \frac{p(t|x) 1(t \in S_k)}{\int_{S_k} p(t|x)dt}.$
+\end{lemma}
+
+\begin{proof}
+    Since $f$ is twice continuously differentiable,
+    \begin{align}
+    \nonumber \int f(t) r_k(t|x) dt &= f(\overline{t}_k) + f'(\overline{t}_k)\int(t - \overline{t}_k) r_k(t|x) dt \\
+    & \quad + \frac{1}{2} \int f''(\tilde{t}) (t - \overline{t}_k)^2 r_k(t|x) dt
+    \end{align}
+    for some $\tilde{t}$ between $t$ and $\overline{t}_k$.
+
+    Since $f''$ is bounded and $(t - \overline{t}_k)^2 \le (\ell/2)^2$,
+    \begin{equation}
+    \left|\frac{1}{2} \int f''(\tilde{t}) (t - \overline{t}_k)^2 r_k(t|x) dt\right| \le C\ell^2.
+    \end{equation}
+    Therefore, it remains to show that the other error term $\int(t - \overline{t}_k) r_k(t|x) dt = O(\ell^2)$.
+
+    We can rewrite the numerator of this term as
+    \begin{equation}
+    \int_{-\ell/2}^{\ell/2} u p(\overline{t}_k + u|x)du,
+    \end{equation}
+    where $u := t - \overline{t}_k$.  Since $p$ is twice continuously differentiable, this is equal to
+    \begin{equation}
+    \int_{-\ell/2}^{\ell/2} u \left[p(\overline{t}_k|x) + up'(\overline{t}_k|x) + \frac{1}{2} u^2 p''(\xi|x)\right]du
+    \end{equation}
+    for some $\xi$ between $t$ and $\overline{t}_k$.  The first term integrates to zero because $\int_{-\ell/2}^{\ell/2} udu = 0$. Therefore, the numerator depends only on second- and higher-order powers of $u$.  Since $u^2 \le \ell^2$, the numerator is $O(\ell^3)$.
+
+    Turning to the denominator and defining $u$ as before, we have
+    \begin{equation}
+        \int_{S_k} p(t|x) dt = \int_{-\ell/2}^{\ell/2} p(\overline{t}_k + u|x)du.
+    \end{equation}
+    By the same expansion, this is $p(\overline{t}_k|x) \ell + O(\ell^2)$.  Putting the numerator and denominator together, we have $O(\ell^3) / (p(\overline{t}_k|x) \ell + O(\ell^2)) = O(\ell^2)$ by positivity, which gives the result.
+\end{proof}
+
+
+
+\end{document}
